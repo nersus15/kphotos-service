@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"kphotos/internal/utils"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/h2non/bimg"
 
 	_ "golang.org/x/image/webp"
 )
@@ -110,9 +113,44 @@ func ListPhotos(w http.ResponseWriter, r *http.Request) {
 
 func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
 	var path string
-	db.DB.QueryRow("SELECT file_path FROM photos WHERE id=?", id).Scan(&path)
-	http.ServeFile(w, r, path)
+	err := db.DB.QueryRow("SELECT file_path FROM photos WHERE id=?", id).Scan(&path)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Baca isi file ke buffer
+	buffer, err := bimg.Read(path)
+	if err != nil {
+		http.Error(w, "Gagal membaca file", http.StatusInternalServerError)
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+
+	// Jika file HEIC / HEIF / WEBP, konversi ke JPEG agar browser bisa tampilkan
+	if ext == ".heic" || ext == ".heif" || ext == ".webp" {
+		newImage, err := bimg.NewImage(buffer).Convert(bimg.JPEG)
+		if err != nil {
+			http.Error(w, "Gagal mengonversi gambar", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(newImage)
+		return
+	}
+
+	// Jika format sudah didukung browser (jpg/png), kirim langsung
+	mimeType := bimg.DetermineImageTypeName(bimg.DetermineImageType(buffer))
+	w.Header().Set("Content-Type", "image/"+mimeType)
+	http.ServeContent(w, r, path, bimg.ImageMetadata{}.DateTime, bytes.NewReader(buffer))
 }
 
 func ServeThumb(w http.ResponseWriter, r *http.Request) {

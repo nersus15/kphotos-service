@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"kphotos/internal/utils"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/h2non/bimg"
 
 	_ "golang.org/x/image/webp"
 )
@@ -114,6 +112,7 @@ func ListPhotos(w http.ResponseWriter, r *http.Request) {
 func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
+	// Ambil path dari DB
 	var path string
 	err := db.DB.QueryRow("SELECT file_path FROM photos WHERE id=?", id).Scan(&path)
 	if err != nil {
@@ -125,32 +124,51 @@ func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Baca isi file ke buffer
-	buffer, err := bimg.Read(path)
-	if err != nil {
-		http.Error(w, "Gagal membaca file", http.StatusInternalServerError)
+	// Pastikan file ada
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
 
 	ext := strings.ToLower(filepath.Ext(path))
 
-	// Jika file HEIC / HEIF / WEBP, konversi ke JPEG agar browser bisa tampilkan
-	if ext == ".heic" || ext == ".heif" || ext == ".webp" {
-		newImage, err := bimg.NewImage(buffer).Convert(bimg.JPEG)
-		if err != nil {
-			http.Error(w, "Gagal mengonversi gambar", http.StatusInternalServerError)
-			return
+	// Jika HEIC/HEIF -> konversi ke JPG (cache di sisi server)
+	if ext == ".heic" || ext == ".heif" {
+		converted := strings.TrimSuffix(path, ext) + ".jpg"
+
+		// Jika belum ada hasil konversi, buat dulu
+		if _, err := os.Stat(converted); os.IsNotExist(err) {
+			// Pastikan executable heif-convert tersedia
+			if _, err := exec.LookPath("heif-convert"); err != nil {
+				http.Error(w, "Server missing heif-convert (libheif). Install libheif-examples.", http.StatusInternalServerError)
+				return
+			}
+
+			// jalankan konversi: heif-convert original.heic converted.jpg
+			cmd := exec.Command("heif-convert", path, converted)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				// Hapus file converted jika ada tapi rusak
+				_ = os.Remove(converted)
+				msg := fmt.Sprintf("HEIC conversion failed: %v — %s", err, string(out))
+				http.Error(w, msg, http.StatusInternalServerError)
+				return
+			}
+			// berhasil dibuat converted
 		}
 
+		// Serve converted JPG
 		w.Header().Set("Content-Type", "image/jpeg")
-		w.Write(newImage)
+		http.ServeFile(w, r, converted)
 		return
 	}
 
-	// Jika format sudah didukung browser (jpg/png), kirim langsung
-	mimeType := bimg.DetermineImageTypeName(bimg.DetermineImageType(buffer))
-	w.Header().Set("Content-Type", "image/"+mimeType)
-	http.ServeContent(w, r, path, bimg.ImageMetadata{}.DateTime, bytes.NewReader(buffer))
+	// Untuk format lain (jpg/png/webp...), serve langsung.
+	// Set Content-Type berdasarkan ekstensi (fallback ke octet-stream)
+	mime := mimeFromExt(ext)
+	if mime != "" {
+		w.Header().Set("Content-Type", mime)
+	}
+	http.ServeFile(w, r, path)
 }
 
 func ServeThumb(w http.ResponseWriter, r *http.Request) {
@@ -158,4 +176,23 @@ func ServeThumb(w http.ResponseWriter, r *http.Request) {
 	var path string
 	db.DB.QueryRow("SELECT thumb_path FROM photos WHERE id=?", id).Scan(&path)
 	http.ServeFile(w, r, path)
+}
+
+func mimeFromExt(ext string) string {
+	switch ext {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".tiff", ".tif":
+		return "image/tiff"
+	default:
+		return ""
+	}
 }

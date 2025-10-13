@@ -152,8 +152,8 @@ func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Baca orientasi EXIF dari hasil konversi
-	orientation := utils.getOrientation(bytes.NewReader(out.Bytes()))
-	img = utils.fixOrientation(img, orientation)
+	orientation := utils.GetOrientation(bytes.NewReader(out.Bytes()))
+	img = utils.FixOrientation(img, orientation)
 
 	// Encode kembali ke JPEG dengan rotasi benar
 	var buf bytes.Buffer

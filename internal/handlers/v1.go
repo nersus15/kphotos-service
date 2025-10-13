@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"kphotos/internal/cache"
 	"kphotos/internal/db"
 	"kphotos/internal/models"
 	"kphotos/internal/utils"
@@ -126,43 +127,57 @@ func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
-
-	// Jika bukan HEIC/HEIF, langsung kirim
 	if ext != ".heic" && ext != ".heif" {
 		http.ServeFile(w, r, filePath)
 		return
 	}
 
-	// Gunakan heif-convert untuk ubah ke JPEG di stdout
-	cmd := exec.Command("heif-convert", filePath, "-")
+	// Cek cache
+	cachedPath := cache.GetCachedPath(filePath, ".jpg")
+	if utils.FileExists(cachedPath) {
+		http.ServeFile(w, r, cachedPath)
+		return
+	}
 
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	if err := cmd.Run(); err != nil {
+	// --- Convert HEIC ke JPEG sementara ---
+	tmpJPG := cachedPath + ".tmp"
+	cmd := exec.Command("heif-convert", filePath, tmpJPG)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Println("heif-convert error:", string(out))
 		http.Error(w, "Gagal mengonversi HEIC", http.StatusInternalServerError)
 		return
 	}
 
-	// Decode hasil JPEG
-	img, _, err := image.Decode(bytes.NewReader(out.Bytes()))
+	// --- Perbaiki orientasi hasil konversi ---
+	imgFile, err := utils.OpenFile(tmpJPG)
 	if err != nil {
-		http.Error(w, "Gagal decode hasil konversi HEIC", http.StatusInternalServerError)
+		http.Error(w, "Gagal membaca hasil konversi", http.StatusInternalServerError)
+		return
+	}
+	defer imgFile.Close()
+
+	img, _, err := image.Decode(imgFile)
+	if err != nil {
+		http.Error(w, "Gagal decode hasil konversi", http.StatusInternalServerError)
 		return
 	}
 
-	// Baca orientasi EXIF dari hasil konversi
-	orientation := utils.GetOrientation(bytes.NewReader(out.Bytes()))
+	orientation := utils.GetOrientation(filePath) // baca orientasi dari file HEIC
 	img = utils.FixOrientation(img, orientation)
 
-	// Encode kembali ke JPEG dengan rotasi benar
+	// Encode ulang ke buffer
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
-		http.Error(w, "Gagal encode ke JPG", http.StatusInternalServerError)
+		http.Error(w, "Gagal encode ke JPEG", http.StatusInternalServerError)
 		return
 	}
 
-	// Kirim ke client
+	// Simpan ke cache
+	if err := cache.Save(cachedPath, buf.Bytes()); err != nil {
+		fmt.Println("Gagal simpan cache:", err)
+	}
+
+	// Kirim ke browser
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.WriteHeader(http.StatusOK)
@@ -174,23 +189,4 @@ func ServeThumb(w http.ResponseWriter, r *http.Request) {
 	var path string
 	db.DB.QueryRow("SELECT thumb_path FROM photos WHERE id=?", id).Scan(&path)
 	http.ServeFile(w, r, path)
-}
-
-func mimeFromExt(ext string) string {
-	switch ext {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	case ".bmp":
-		return "image/bmp"
-	case ".tiff", ".tif":
-		return "image/tiff"
-	default:
-		return ""
-	}
 }

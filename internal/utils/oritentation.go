@@ -2,50 +2,78 @@ package utils
 
 import (
 	"image"
-	"io"
+	"os"
 
-	"github.com/disintegration/imaging"
 	"github.com/rwcarlsen/goexif/exif"
 )
 
-// GetOrientation membaca orientasi EXIF
-func GetOrientation(r io.Reader) int {
-	x, err := exif.Decode(r)
+func GetOrientation(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 1
+	}
+	defer f.Close()
+
+	x, err := exif.Decode(f)
 	if err != nil {
 		return 1
 	}
 
-	tag, err := x.Get(exif.Orientation)
+	o, err := x.Get(exif.Orientation)
 	if err != nil {
 		return 1
 	}
 
-	orient, err := tag.Int(0)
+	orientation, err := o.Int(0)
 	if err != nil {
 		return 1
 	}
-
-	return orient
+	return orientation
 }
 
-// FixOrientation memutar gambar sesuai orientasi EXIF
 func FixOrientation(img image.Image, orientation int) image.Image {
 	switch orientation {
-	case 2:
-		return imaging.FlipH(img)
 	case 3:
-		return imaging.Rotate180(img)
-	case 4:
-		return imaging.FlipV(img)
-	case 5:
-		return imaging.Transpose(img)
+		return rotate180(img)
 	case 6:
-		return imaging.Rotate270(img)
-	case 7:
-		return imaging.Transverse(img)
+		return rotate90(img)
 	case 8:
-		return imaging.Rotate90(img)
+		return rotate270(img)
 	default:
 		return img
 	}
+}
+
+// --- Rotasi utilitas sederhana ---
+func rotate90(img image.Image) image.Image {
+	b := img.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, b.Dy(), b.Dx()))
+	for x := b.Min.X; x < b.Max.X; x++ {
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			dst.Set(b.Max.Y-y-1, x, img.At(x, y))
+		}
+	}
+	return dst
+}
+
+func rotate180(img image.Image) image.Image {
+	b := img.Bounds()
+	dst := image.NewRGBA(b)
+	for x := b.Min.X; x < b.Max.X; x++ {
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			dst.Set(b.Max.X-x-1, b.Max.Y-y-1, img.At(x, y))
+		}
+	}
+	return dst
+}
+
+func rotate270(img image.Image) image.Image {
+	b := img.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, b.Dy(), b.Dx()))
+	for x := b.Min.X; x < b.Max.X; x++ {
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			dst.Set(y, b.Max.X-x-1, img.At(x, y))
+		}
+	}
+	return dst
 }

@@ -45,3 +45,27 @@ func GetImageSize(path string) (width, height int) {
 func OpenFile(path string) (*os.File, error) {
 	return os.Open(path)
 }
+
+func FileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func mimeFromExt(ext string) string {
+	switch ext {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".tiff", ".tif":
+		return "image/tiff"
+	default:
+		return ""
+	}
+}

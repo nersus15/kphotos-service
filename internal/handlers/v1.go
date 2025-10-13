@@ -139,12 +139,21 @@ func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Buat direktori cache jika belum ada
+	os.MkdirAll(filepath.Dir(cachedPath), 0755)
+
 	// --- Convert HEIC ke JPEG sementara ---
-	tmpJPG := cachedPath + ".tmp"
+	tmpJPG := strings.TrimSuffix(cachedPath, ".jpg") + "_conv.jpg"
 	cmd := exec.Command("heif-convert", filePath, tmpJPG)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Println("heif-convert error:", string(out))
 		http.Error(w, "Gagal mengonversi HEIC", http.StatusInternalServerError)
+		return
+	}
+
+	// Pastikan file hasil konversi ada
+	if !utils.FileExists(tmpJPG) {
+		http.Error(w, "File hasil konversi tidak ditemukan", http.StatusInternalServerError)
 		return
 	}
 
@@ -172,10 +181,13 @@ func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Simpan ke cache
+	// Simpan ke cache (overwrite)
 	if err := cache.Save(cachedPath, buf.Bytes()); err != nil {
 		fmt.Println("Gagal simpan cache:", err)
 	}
+
+	// Hapus file konversi sementara
+	os.Remove(tmpJPG)
 
 	// Kirim ke browser
 	w.Header().Set("Content-Type", "image/jpeg")

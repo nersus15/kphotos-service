@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
 	"io"
 	"net/http"
 	"os"
@@ -108,67 +110,60 @@ func ListPhotos(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(photos)
 }
-
 func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	// Ambil path dari DB
-	var path string
-	err := db.DB.QueryRow("SELECT file_path FROM photos WHERE id=?", id).Scan(&path)
+	var filePath string
+	err := db.DB.QueryRow("SELECT file_path FROM photos WHERE id = ?", id).Scan(&filePath)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Not found", http.StatusNotFound)
+			http.Error(w, "Foto tidak ditemukan", http.StatusNotFound)
 		} else {
-			http.Error(w, "Database error", http.StatusInternalServerError)
+			http.Error(w, "Kesalahan database", http.StatusInternalServerError)
 		}
 		return
 	}
 
-	// Pastikan file ada
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		http.Error(w, "File not found", http.StatusNotFound)
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	// Jika file bukan HEIC/HEIF, langsung kirim
+	if ext != ".heic" && ext != ".heif" {
+		http.ServeFile(w, r, filePath)
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(path))
+	// Buka file HEIC
+	file, err := utils.OpenFile(filePath)
+	if err != nil {
+		http.Error(w, "Gagal membuka file HEIC", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
 
-	// Jika HEIC/HEIF -> konversi ke JPG (cache di sisi server)
-	if ext == ".heic" || ext == ".heif" {
-		converted := strings.TrimSuffix(path, ext) + ".jpg"
-
-		// Jika belum ada hasil konversi, buat dulu
-		if _, err := os.Stat(converted); os.IsNotExist(err) {
-			// Pastikan executable heif-convert tersedia
-			if _, err := exec.LookPath("heif-convert"); err != nil {
-				http.Error(w, "Server missing heif-convert (libheif). Install libheif-examples.", http.StatusInternalServerError)
-				return
-			}
-
-			// jalankan konversi: heif-convert original.heic converted.jpg
-			cmd := exec.Command("heif-convert", path, converted)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				// Hapus file converted jika ada tapi rusak
-				_ = os.Remove(converted)
-				msg := fmt.Sprintf("HEIC conversion failed: %v — %s", err, string(out))
-				http.Error(w, msg, http.StatusInternalServerError)
-				return
-			}
-			// berhasil dibuat converted
-		}
-
-		// Serve converted JPG
-		w.Header().Set("Content-Type", "image/jpeg")
-		http.ServeFile(w, r, converted)
+	// Decode HEIC menjadi image.Image
+	img, err := utils.DecodeHEIC(file)
+	if err != nil {
+		http.Error(w, "Gagal decode HEIC", http.StatusInternalServerError)
 		return
 	}
 
-	// Untuk format lain (jpg/png/webp...), serve langsung.
-	// Set Content-Type berdasarkan ekstensi (fallback ke octet-stream)
-	mime := mimeFromExt(ext)
-	if mime != "" {
-		w.Header().Set("Content-Type", mime)
+	// Reset reader untuk baca EXIF orientation
+	file.Seek(0, 0)
+	orientation := utils.getOrientation(file)
+	img = utils.FixOrientation(img, orientation)
+
+	// Encode ke JPEG dalam buffer
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+		http.Error(w, "Gagal encode ke JPG", http.StatusInternalServerError)
+		return
 	}
-	http.ServeFile(w, r, path)
+
+	// Kirim response
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.WriteHeader(http.StatusOK)
+	w.Write(buf.Bytes())
 }
 
 func ServeThumb(w http.ResponseWriter, r *http.Request) {

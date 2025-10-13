@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/adrium/goheif"
 	"github.com/disintegration/imaging"
 )
 
@@ -40,4 +41,16 @@ func GetImageSize(path string) (width, height int) {
 		return 0, 0
 	}
 	return img.Width, img.Height
+}
+
+func DecodeHEIC(f *os.File) (image.Image, error) {
+	img, err := goheif.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+func OpenFile(path string) (*os.File, error) {
+	return os.Open(path)
 }

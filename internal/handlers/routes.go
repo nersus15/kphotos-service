@@ -13,6 +13,9 @@ func V1Routes() http.Handler {
 		w.Write([]byte("health check..."))
 	})
 
-	r.Post("/upload/", UploadPhoto)
+	r.Post("/upload", UploadPhoto)
+	r.Get("/photos", ListPhotos)
+	r.Get("/media/{id}", ServeOriginal)
+	r.Get("/thumb/{id}", ServeThumb)
 	return r
 }

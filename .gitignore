@@ -1,2 +1,4 @@
 ./photos/
 ./data/
+./go.sum
+./go.mod

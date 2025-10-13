@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"image"
 	"image/jpeg"
 	"io"
 	"net/http"
@@ -126,40 +127,42 @@ func ServeOriginal(w http.ResponseWriter, r *http.Request) {
 
 	ext := strings.ToLower(filepath.Ext(filePath))
 
-	// Jika file bukan HEIC/HEIF, langsung kirim
+	// Jika bukan HEIC/HEIF, langsung kirim
 	if ext != ".heic" && ext != ".heif" {
 		http.ServeFile(w, r, filePath)
 		return
 	}
 
-	// Buka file HEIC
-	file, err := utils.OpenFile(filePath)
-	if err != nil {
-		http.Error(w, "Gagal membuka file HEIC", http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
+	// Gunakan heif-convert untuk ubah ke JPEG di stdout
+	cmd := exec.Command("heif-convert", filePath, "-")
 
-	// Decode HEIC menjadi image.Image
-	img, err := utils.DecodeHEIC(file)
-	if err != nil {
-		http.Error(w, "Gagal decode HEIC", http.StatusInternalServerError)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	if err := cmd.Run(); err != nil {
+		http.Error(w, "Gagal mengonversi HEIC", http.StatusInternalServerError)
 		return
 	}
 
-	// Reset reader untuk baca EXIF orientation
-	file.Seek(0, 0)
-	orientation := utils.getOrientation(file)
-	img = utils.FixOrientation(img, orientation)
+	// Decode hasil JPEG
+	img, _, err := image.Decode(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		http.Error(w, "Gagal decode hasil konversi HEIC", http.StatusInternalServerError)
+		return
+	}
 
-	// Encode ke JPEG dalam buffer
+	// Baca orientasi EXIF dari hasil konversi
+	orientation := utils.getOrientation(bytes.NewReader(out.Bytes()))
+	img = utils.fixOrientation(img, orientation)
+
+	// Encode kembali ke JPEG dengan rotasi benar
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
 		http.Error(w, "Gagal encode ke JPG", http.StatusInternalServerError)
 		return
 	}
 
-	// Kirim response
+	// Kirim ke client
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.WriteHeader(http.StatusOK)

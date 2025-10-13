@@ -8,6 +8,11 @@ require (
 )
 
 require (
+	github.com/adrium/goheif v0.0.0-20230113233934-ca402e77a786 // indirect
+	golang.org/x/image v0.32.0 // indirect
+)
+
+require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/h2non/bimg v1.1.9

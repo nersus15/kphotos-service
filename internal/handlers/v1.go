@@ -350,12 +350,12 @@ func jsonResponse(w http.ResponseWriter, data any) {
 			w.Write([]byte("[]"))
 			return
 		}
-	case []model.Album:
+	case []models.Album:
 		if len(v) == 0 {
 			w.Write([]byte("[]"))
 			return
 		}
-	case []model.Photo:
+	case []models.Photo:
 		if len(v) == 0 {
 			w.Write([]byte("[]"))
 			return

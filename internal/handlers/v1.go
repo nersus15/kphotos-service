@@ -227,7 +227,7 @@ func listAlbums(w http.ResponseWriter, r *http.Request) {
 // POST /albums
 func createAlbum(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Name string `json:"name"`,
+		Name        string `json:"name"`
 		Description string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Name == "" {

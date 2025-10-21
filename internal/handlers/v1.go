@@ -202,3 +202,142 @@ func ServeThumb(w http.ResponseWriter, r *http.Request) {
 	db.DB.QueryRow("SELECT thumb_path FROM photos WHERE id=?", id).Scan(&path)
 	http.ServeFile(w, r, path)
 }
+
+// GET /albums
+func listAlbums(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.DB.Query("SELECT * FROM albums ORDER BY created_at DESC")
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var albums []Album
+	for rows.Next() {
+		var a Album
+		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedAt); err != nil {
+			continue
+		}
+		albums = append(albums, a)
+	}
+
+	jsonResponse(w, albums)
+}
+
+// POST /albums
+func createAlbum(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Name == "" {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	result, err := db.DB.Exec("INSERT INTO albums (name) VALUES (?)", payload.Name)
+	if err != nil {
+		http.Error(w, "Failed to create album", http.StatusInternalServerError)
+		return
+	}
+
+	id, _ := result.LastInsertId()
+	jsonResponse(w, map[string]any{"id": id, "name": payload.Name})
+}
+
+// GET /albums/{id}/photos
+func getAlbumPhotos(w http.ResponseWriter, r *http.Request) {
+	albumID := chi.URLParam(r, "id")
+
+	query := `
+		SELECT p.id, p.name, p.file_path
+		FROM photos p
+		JOIN album_photos ap ON p.id = ap.photo_id
+		WHERE ap.album_id = ?;
+	`
+
+	rows, err := db.DB.Query(query, albumID)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type Photo struct {
+		ID       int    `json:"id"`
+		Name     string `json:"name"`
+		FilePath string `json:"file_path"`
+	}
+
+	var photos []Photo
+	for rows.Next() {
+		var p Photo
+		if err := rows.Scan(&p.ID, &p.Name, &p.FilePath); err != nil {
+			continue
+		}
+		photos = append(photos, p)
+	}
+
+	jsonResponse(w, photos)
+}
+
+// POST /albums/{id}/add/{photoId}
+func addPhotoToAlbum(w http.ResponseWriter, r *http.Request) {
+	albumID := chi.URLParam(r, "id")
+	photoID := chi.URLParam(r, "photoId")
+
+	_, err := db.DB.Exec("INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?, ?)", albumID, photoID)
+	if err != nil {
+		http.Error(w, "Failed to add photo", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]string{"status": "added"})
+}
+
+// DELETE /albums/{id}/remove/{photoId}
+func removePhotoFromAlbum(w http.ResponseWriter, r *http.Request) {
+	albumID := chi.URLParam(r, "id")
+	photoID := chi.URLParam(r, "photoId")
+
+	_, err := db.DB.Exec("DELETE FROM album_photos WHERE album_id = ? AND photo_id = ?", albumID, photoID)
+	if err != nil {
+		http.Error(w, "Failed to remove photo", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]string{"status": "removed"})
+}
+
+// DELETE /albums/{id}
+func deleteAlbum(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	tx, err := db.DB.Begin()
+	if err != nil {
+		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// hapus relasi dulu
+	if _, err := tx.Exec("DELETE FROM album_photos WHERE album_id = ?", id); err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to delete relations", http.StatusInternalServerError)
+		return
+	}
+
+	// hapus album
+	if _, err := tx.Exec("DELETE FROM albums WHERE id = ?", id); err != nil {
+		tx.Rollback()
+		http.Error(w, "Failed to delete album", http.StatusInternalServerError)
+		return
+	}
+
+	tx.Commit()
+	jsonResponse(w, map[string]string{"status": "deleted"})
+}
+
+// Helper JSON
+func jsonResponse(w http.ResponseWriter, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}

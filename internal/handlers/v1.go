@@ -3,16 +3,19 @@ package handlers
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"kphotos/internal/cache"
 	"kphotos/internal/db"
@@ -242,11 +245,14 @@ func createAlbum(w http.ResponseWriter, r *http.Request) {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 	}
+	originalID := "album_" + generateRandomString(8)
+	encodedID := base64.StdEncoding.EncodeToString([]byte(originalID))
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Name == "" {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	result, err := db.DB.Exec("INSERT INTO albums (name, description) VALUES (?,?)", payload.Name, payload.Description)
+	result, err := db.DB.Exec("INSERT INTO albums (id, name, description) VALUES (?,?)", encodedID, payload.Name, payload.Description)
 	if err != nil {
 		errResponse := fmt.Sprintf("Failed to create album: %s", err.Error())
 		http.Error(w, errResponse, http.StatusInternalServerError)
@@ -383,4 +389,15 @@ func nullToString(ns sql.NullString) string {
 		return ns.String
 	}
 	return ""
+}
+
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano())) // Seed the random number generator
+
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[seededRand.Intn(len(charset))]
+	}
+	return string(b)
 }

@@ -215,7 +215,7 @@ func listAlbums(w http.ResponseWriter, r *http.Request) {
 	var albums []models.Album
 	for rows.Next() {
 		var a models.Album
-		if err := rows.Scan(&a.ID, &a.Name, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.Cover, &a.CreatedAt); err != nil {
 			continue
 		}
 		albums = append(albums, a)

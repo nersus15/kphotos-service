@@ -252,7 +252,7 @@ func createAlbum(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	result, err := db.DB.Exec("INSERT INTO albums (id, name, description) VALUES (?,?)", encodedID, payload.Name, payload.Description)
+	result, err := db.DB.Exec("INSERT INTO albums (id, name, description) VALUES (?,?,?)", encodedID, payload.Name, payload.Description)
 	if err != nil {
 		errResponse := fmt.Sprintf("Failed to create album: %s", err.Error())
 		http.Error(w, errResponse, http.StatusInternalServerError)

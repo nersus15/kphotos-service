@@ -227,14 +227,14 @@ func listAlbums(w http.ResponseWriter, r *http.Request) {
 // POST /albums
 func createAlbum(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Name string `json:"name"`
+		Name string `json:"name"`,
+		Description string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Name == "" {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-
-	result, err := db.DB.Exec("INSERT INTO albums (name) VALUES (?)", payload.Name)
+	result, err := db.DB.Exec("INSERT INTO albums (name, description) VALUES (??)", payload.Name, payload.Description)
 	if err != nil {
 		http.Error(w, "Failed to create album", http.StatusInternalServerError)
 		return

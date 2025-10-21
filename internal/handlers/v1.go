@@ -339,5 +339,28 @@ func deleteAlbum(w http.ResponseWriter, r *http.Request) {
 // Helper JSON
 func jsonResponse(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Jika data adalah slice kosong, return [] bukan null
+	switch v := data.(type) {
+	case nil:
+		w.Write([]byte("[]"))
+		return
+	case []any:
+		if len(v) == 0 {
+			w.Write([]byte("[]"))
+			return
+		}
+	case []Album:
+		if len(v) == 0 {
+			w.Write([]byte("[]"))
+			return
+		}
+	case []Photo:
+		if len(v) == 0 {
+			w.Write([]byte("[]"))
+			return
+		}
+	}
+
 	json.NewEncoder(w).Encode(data)
 }

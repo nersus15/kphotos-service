@@ -205,20 +205,32 @@ func ServeThumb(w http.ResponseWriter, r *http.Request) {
 
 // GET /albums
 func listAlbums(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.DB.Query("SELECT * FROM albums ORDER BY created_at DESC")
+	rows, err := db.DB.Query("SELECT id, name, description, cover, created_at FROM albums ORDER BY created_at DESC")
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	var albums []models.Album
+	var albums []models.AlbumResponse
+
 	for rows.Next() {
 		var a models.Album
 		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.Cover, &a.CreatedAt); err != nil {
 			continue
 		}
-		albums = append(albums, a)
+
+		albums = append(albums, models.AlbumResponse{
+			ID:          a.ID,
+			Name:        a.Name,
+			Description: nullToString(a.Description),
+			Cover:       nullToString(a.Cover),
+			CreatedAt:   a.CreatedAt,
+		})
+	}
+
+	if len(albums) == 0 {
+		albums = []models.AlbumResponse{} // jangan return null
 	}
 
 	jsonResponse(w, albums)
@@ -364,4 +376,11 @@ func jsonResponse(w http.ResponseWriter, data any) {
 	}
 
 	json.NewEncoder(w).Encode(data)
+}
+
+func nullToString(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
 }
